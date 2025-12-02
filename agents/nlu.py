@@ -11,6 +11,8 @@ from pydantic import BaseModel
 
 from schemas.context import ConversationContext, NLUEntities, NLUResult, IntentType
 
+import json #Importing this here just for TESTING Context dump
+
 
 model = ChatOllama(
     model="llama3.1:8b",
@@ -132,9 +134,17 @@ class NLUAgent:
         #context.intent = nlu_result.intent --REMOVING (NLU Agent should not generate its own Intent
         context.entities = nlu_result.entities
         context.nlu_reasoning = nlu_result.reasoning
+        if context.entities and any(context.entities.model_dump().values()): #--Why dumping the entire JSON - Reason is checking all the returned Entities
+            context.understood_message = True
+        
     
         # Mark path
         if "NLUAgent" not in context.agent_path:
             context.agent_path.append("NLUAgent")
-    
+
+        # print("Testing NLU Agent Context Dump:")
+        # print(json.dumps(context.model_dump(), indent=2))
+        # 
+        # print("Dumping the entire NLU JSON:")
+        # print(context.entities.model_dump().values())
         return context

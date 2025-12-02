@@ -1,13 +1,35 @@
 from orchestration.flow import run_orchestration
 from schemas.context import OrchestrationRequest
 import json
+from routes.routes import router as api_router
+from fastapi import FastAPI
+
+app = FastAPI(
+    title="Project Mynah Agent API",
+    version="0.1.0",
+    description="API wrapper around the LangChain-based mynah agent system.",
+)
+
+# Mount the interaction endpoints
+app.include_router(api_router, prefix="/api/v1")
 
 if __name__ == "__main__":
-    request = OrchestrationRequest(message="I want to pay R500 per month towards my balance", 
-                               debtor_id="123456789", 
-                               session_id="session_abc123456",
-                               )
-    agent_response, nlu_agent_response, orchestration_response = run_orchestration(request)
-    print(json.dumps(orchestration_response.model_dump(), indent=2))
-    print(json.dumps(agent_response.model_dump(), indent=2))
-    print(json.dumps(nlu_agent_response.model_dump(), indent=2))
+    # request = OrchestrationRequest(message="I want to pay R500 per month towards my balance", 
+    #                             debtor_id="123456789", 
+    #                             session_id="session_abc123456",
+    #                             channel="webchat", #Added for the API endpoint
+    #                            )
+    # agent_response, nlu_agent_response, orchestration_response = run_orchestration(request)
+    
+    
+    # print(json.dumps(orchestration_response.model_dump(), indent=2))
+    # print("Testing Context Dump:")
+    # print(json.dumps(agent_response.model_dump(), indent=2))
+    #print(json.dumps(nlu_agent_response.model_dump(), indent=2))
+    
+    #####API Server Section#####
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    
+    #message="I want to pay R500 per month towards my balance"

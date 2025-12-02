@@ -8,11 +8,13 @@ from agents.master import MasterAgent
 
 from agents.nlu import NLUAgent
 
+import json #Importing this here just for TESTING Context dump
+
 def build_initial_context(request: OrchestrationRequest) -> ConversationContext:
     return ConversationContext(
         session_id=request.session_id, 
         debtor_id=request.debtor_id,
-        last_user_message=request.message
+        last_user_message=request.message,
     )
 
 def run_orchestration(request: OrchestrationRequest) -> Tuple[ConversationContext, OrchestrationResponse]:
@@ -50,11 +52,16 @@ def run_orchestration(request: OrchestrationRequest) -> Tuple[ConversationContex
         last_user_message=context.last_user_message,
         summary=context.reasoning if hasattr(context, 'summary') else "No summary available",
         reasoning_result=context.reasoning_result
+        # nlu_reasoning=context.nlu_reasoning
     )
+    # print("Testing Context Dump:")
+    # print(json.dumps(context.model_dump(), indent=2))
+    # print(json.dumps(agent_response.model_dump(), indent=2))
 
     nlu_agent_response = NLUAgentResponse(
         Entities=nlu_agent_result.entities,
-        reasoning_result=context.reasoning_result
+        reasoning_result=context.reasoning_result,
+        nlu_reasoning=context.nlu_reasoning
     )
     
     

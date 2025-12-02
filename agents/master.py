@@ -9,6 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from schemas.context import ConversationContext, IntentType
 from schemas.master_intent import MasterIntentOutput
 #from . import OllamaLLM
+import json #Importing this here just for TESTING Context dump
 
 model = ChatOllama(
     model="llama3.1:8b",
@@ -64,6 +65,8 @@ class MasterAgent:
         context.intent = result.intent
         context.agent_path.append("Master Agent")
         context.next_agent = "NLU Agent"
+        if context.intent != "unknown":
+            context.understood_message = True
             #if context.intent == IntentType.BALANCE else "Data Agent" --PLACEHOLDER
         # fixed route for now; NLU always follows
         # we can optionally store reasoning somewhere if useful
@@ -83,5 +86,10 @@ class MasterAgent:
         
             #context.last_user_message = result.response --PLACEHOLDER
         #return context
-
+        # print("Testing Master Agent Context Dump:")
+        # print(json.dumps(context.model_dump(), indent=2))
+        # 
+        # print("Dumping the entire Master JSON:")
+        # print(context.entities.model_dump().values())
+        
         return context
