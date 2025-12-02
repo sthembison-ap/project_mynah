@@ -7,6 +7,7 @@ if __name__ == "__main__":
                                debtor_id="123456789", 
                                session_id="session_abc123456",
                                )
-    agent_response, orchestration_response = run_orchestration(request)
+    agent_response, nlu_agent_response, orchestration_response = run_orchestration(request)
     print(json.dumps(orchestration_response.model_dump(), indent=2))
     print(json.dumps(agent_response.model_dump(), indent=2))
+    print(json.dumps(nlu_agent_response.model_dump(), indent=2))

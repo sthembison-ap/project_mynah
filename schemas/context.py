@@ -124,7 +124,8 @@ class ConversationContext(BaseModel):
     crm: Optional[ExcaliburContext] = Field(None, description="The Excalibur context of the conversation")
     
     # reasoning layer:
-    reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the conversation")
+    reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the Master Agent conversation")
+    nlu_reasoning: Optional[str] = Field(None, description="The reasoning result of the NLU layer")
     
     # final response:
     final_response: Optional[str] = Field(None, description="The final response to be sent to the user")
@@ -145,6 +146,11 @@ class OrchestrationResponse(BaseModel):
 class AgentResponse(BaseModel):
     last_user_message: Optional[str] = Field(None, description="The last user message sent in the conversation")
     summary: str = Field(..., description="The summary response to be sent to the user")
+    reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the conversation")
+    
+    
+class NLUAgentResponse(BaseModel):
+    Entities: NLUEntities
     reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the conversation")
 
     model_config = {

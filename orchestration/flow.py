@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from schemas.context import ConversationContext, OrchestrationRequest, OrchestrationResponse, AgentResponse
+from schemas.context import ConversationContext, OrchestrationRequest, OrchestrationResponse, AgentResponse, NLUAgentResponse
 
 from agents.master import MasterAgent
 
@@ -51,9 +51,14 @@ def run_orchestration(request: OrchestrationRequest) -> Tuple[ConversationContex
         summary=context.reasoning if hasattr(context, 'summary') else "No summary available",
         reasoning_result=context.reasoning_result
     )
+
+    nlu_agent_response = NLUAgentResponse(
+        Entities=nlu_agent_result.entities,
+        reasoning_result=context.reasoning_result
+    )
     
     
-    return agent_response, orchestration_response
+    return agent_response, nlu_agent_response ,orchestration_response
 
     # Outstanding: NLU Agent -> Data Agent -> Reasoning Agent -> Response Agent
     # For now we just echo what we learned from Master Agent.

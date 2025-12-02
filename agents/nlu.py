@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 from pydantic import BaseModel
 
-from schemas.context import ConversationContext, NLUEntities, IntentType
+from schemas.context import ConversationContext, NLUEntities, NLUResult, IntentType
 
 
 model = ChatOllama(
@@ -24,24 +24,28 @@ model = ChatOllama(
 class NLUAgent:
     """
     Natural Language Understanding (NLU) agent.
-
     Responsibilities:
-    - Interpret the debtor's latest message.
-    - Classify intent (arrangement, settlement, balance query, etc.).
-    - Extract structured entities (amount, currency, frequency, etc.).
-    - Provide short reasoning for debugging and audits.
+    - Extract entities (amount, currency, frequency, etc.) from the debtor's message.
+    - DO NOT decide or override intent. Intent is set by MasterAgent.
+    - Provide short reasoning to help with debugging and audits.
     """
     
     def __init__(self) -> None:
+        #self.structured_llm = None #Structured LLM Output
         self.llm = model
+        #Structured output: NLUResult (entities + reasoning, no intent)
+        structured_llm = self.llm.with_structured_output(NLUResult)
         
-        #Use structured output parser to extract entities from LLM output
-        self.output_parser = PydanticOutputParser(pydantic_object=NLUEntities)
-        self.prompt = self.build_prompt()
+        self.prompt = self._build_prompt()
+        
+        # Mirror MasterAgent: prompt -> LLM(with_structured_output)
+        self.chain = self.prompt | structured_llm
+        #self.output_parser = PydanticOutputParser(pydantic_object=NLUEntities) --Deprecating this, agent is redesigned
+        
         
     
     @staticmethod
-    def build_prompt() -> ChatPromptTemplate:
+    def _build_prompt() -> ChatPromptTemplate:
         """
         Prompt template for extracting intent and entities from LLM output.
         """
@@ -71,10 +75,14 @@ class NLUAgent:
         )
         
         user = (
-            """Conversation context (may be partial): {conversation_context}
-            Debtor's latest message: {debtor_message}
-        "Now carefully decide the intent, extract entities, and explain your reasoning.
-        """
+            "High-level context:\n"
+            "- session_id: {session_id}\n"
+            "- debtor_id: {debtor_id}\n"
+            "- intent (from MasterAgent): {intent}\n\n"
+            "Debtor's latest message:\n"
+            "\"\"\"{debtor_message}\"\"\"\n\n"
+            "Now extract entities and explain your reasoning. "
+            "Remember: DO NOT change the intent."
         )
 
         return ChatPromptTemplate.from_messages(
@@ -84,44 +92,49 @@ class NLUAgent:
             ]
         )
 
-def _build_prompt_values(self, context: ConversationContext) -> Dict[str, Any]:
-        """
-        Create values passed into the prompt template.
-        We keep context light to avoid leaking too much info.
-        """
-    # You can enrich this with more context later (previous turns, crm data etc.)
-        conversation_snapshot = {
-            "session_id": context.session_id,
-            "debtor_id": context.debtor_id,
-            "current_intent": context.intent,
-        }
+    def _build_prompt_values(self, context: ConversationContext) -> Dict[str, Any]:
+            """
+            Create values passed into the prompt template.
+            We keep context light to avoid leaking too much info.
+            """
+        # You can enrich this with more context later (previous turns, crm data etc.)
+            conversation_snapshot = {
+                "session_id": context.session_id,
+                "debtor_id": context.debtor_id,
+                #"current_intent": context.intent, -- Causes ChatPromptTemplate to fail
+                "intent": context.intent,  # Corrected key name - To stop ChatPromptTemplate from failing
+                "debtor_message": context.last_user_message,
+            }
+    
+            return {
+                "conversation_context": conversation_snapshot,
+                "session_id": context.session_id,
+                "debtor_id": context.debtor_id,
+                "intent": context.intent,
+                "debtor_message": context.last_user_message,
+            }
 
-        return {
-            "conversation_context": conversation_snapshot,
-            "debtor_message": context.last_user_message,
-        }
+    def run(self, context: ConversationContext) -> ConversationContext:
+        """
+        Execute the NLU step and update the context.
+        """
+        if not context.last_user_message:
+            # Nothing to do
+            return context
+    
+        prompt_values = self._build_prompt_values(context)
+        nlu_result: NLUResult = self.chain.invoke(prompt_values)
+    
+        # Call the LLM with structured output
+        #nlu_result: NLUResult = self.structured_llm.invoke(prompt) --Deprecating this line due to 
 
-# def run(self, context: ConversationContext) -> ConversationContext:
-#     """
-#     Execute the NLU step and update the context.
-#     """
-#     if not context.last_user_message:
-#         # Nothing to do
-#         return context
-# 
-#     prompt_values = self._build_prompt_values(context)
-#     prompt = self.prompt.format(**prompt_values)
-# 
-#     # Call the LLM with structured output
-#     nlu_result: NLUResult = self.structured_llm.invoke(prompt)
-# 
-#     # Update context
-#     context.intent = nlu_result.intent
-#     context.entities = nlu_result.entities
-#     context.nlu_reasoning = nlu_result.reasoning
-# 
-#     # Mark path
-#     if "NLUAgent" not in context.agent_path:
-#         context.agent_path.append("NLUAgent")
-# 
-#     return context
+        # Update context with extracted entities + reasoning
+        #context.intent = nlu_result.intent --REMOVING (NLU Agent should not generate its own Intent
+        context.entities = nlu_result.entities
+        context.nlu_reasoning = nlu_result.reasoning
+    
+        # Mark path
+        if "NLUAgent" not in context.agent_path:
+            context.agent_path.append("NLUAgent")
+    
+        return context
