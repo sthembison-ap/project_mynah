@@ -9,6 +9,9 @@ from agents.master import MasterAgent
 from agents.nlu import NLUAgent
 
 import json #Importing this here just for TESTING Context dump
+# New imports for intent routing and response generation
+from routes.intent_router import IntentRouter
+from agents.response_agent import ResponseAgent
 
 def build_initial_context(request: OrchestrationRequest) -> ConversationContext:
     return ConversationContext(
@@ -17,71 +20,64 @@ def build_initial_context(request: OrchestrationRequest) -> ConversationContext:
         last_user_message=request.message,
     )
 
-def run_orchestration(request: OrchestrationRequest) -> Tuple[ConversationContext, OrchestrationResponse]:
+def run_orchestration(request: OrchestrationRequest) -> Tuple[AgentResponse, NLUAgentResponse, OrchestrationResponse]:
+    """
+    Main orchestration flow with intent-based routing.
+    
+    Flow:
+    1. Master Agent - Classify intent
+    2. NLU Agent - Extract entities
+    3. Intent Router - Route to appropriate handler
+    4. Response Agent - Generate natural response
+    """
     context = build_initial_context(request)
-    
-    #1) Master Agent - classify intent, extract entities, take action
-    agent = MasterAgent()
+
+    # Initialize agents
+    master_agent = MasterAgent()
     nlu_agent = NLUAgent()
+    intent_router = IntentRouter()
+    response_agent = ResponseAgent()
 
-    # Capture the result from Agent run
-    agent_result = agent.run(context)
-    
-    #2)NLU: refine intent & extract entities
-    nlu_agent_result = nlu_agent.run(context)
+    # Step 1: Master Agent - Classify intent
+    context = master_agent.run(context)
 
+    # Step 2: NLU Agent - Extract entities
+    context = nlu_agent.run(context)
 
-    # Construct the OrchestrationResponse
-    response_text = (
-        f"Detected intent: {context.intent}. "
-        f"(This is just the Master Agent stub; downstream agents still to be implemented.)"
-    )
-    context.final_response = response_text
+    # Step 3: Intent Router - Route based on intent and handle business logic
+    context = intent_router.route(context)
+
+    # Step 4: Response Agent - Generate natural language response
+    # Only run if we don't already have a good response from the handler
+    if not context.final_response or context.next_agent == "ResponseAgent":
+        context = response_agent.run(context)
+
+    # Mark orchestration complete
     context.agent_path.append("Orchestrator")
 
+    # Construct responses
     orchestration_response = OrchestrationResponse(
         session_id=context.session_id,
         debtor_id=context.debtor_id,
-        response=response_text,
+        response=context.final_response or "I'm sorry, I couldn't process your request.",
         agent_path=context.agent_path,
         status="completed" if context.understood_message else "failed",
-        extra={},
+        extras={
+            "intent": context.intent,
+            "next_agent": context.next_agent,
+        },
     )
 
     agent_response = AgentResponse(
         last_user_message=context.last_user_message,
-        summary=context.reasoning if hasattr(context, 'summary') else "No summary available",
+        summary=context.reasoning_result.summary if context.reasoning_result and context.reasoning_result.summary else "No summary available",
         reasoning_result=context.reasoning_result
-        # nlu_reasoning=context.nlu_reasoning
     )
-    # print("Testing Context Dump:")
-    # print(json.dumps(context.model_dump(), indent=2))
-    # print(json.dumps(agent_response.model_dump(), indent=2))
 
     nlu_agent_response = NLUAgentResponse(
-        Entities=nlu_agent_result.entities,
+        Entities=context.entities,
         reasoning_result=context.reasoning_result,
         nlu_reasoning=context.nlu_reasoning
     )
-    
-    
-    return agent_response, nlu_agent_response ,orchestration_response
 
-    # Outstanding: NLU Agent -> Data Agent -> Reasoning Agent -> Response Agent
-    # For now we just echo what we learned from Master Agent.
-
-    # response_text = (
-    #     f"Detected intent: {context.intent}. "
-    #     f"(This is just the Master Agent stub; downstream agents still to be implemented.)"
-    # )
-    # context.final_response = response_text
-    # context.agent_path.append("Orchestrator")
-    # 
-    # return OrchestratorResponse(
-    #     session_id=context.session_id,
-    #     debtor_id=context.debtor_id,
-    #     response=response_text,
-    #     agent_path=context.agent_path,
-    #     status="completed",
-    #     extra={},
-    # )
+    return agent_response, nlu_agent_response, orchestration_response

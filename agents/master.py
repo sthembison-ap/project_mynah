@@ -15,7 +15,7 @@ model = ChatOllama(
     model="llama3.1:8b",
     base_url="http://192.168.100.203:11434",  # Specify the server URL
     validate_model_on_init=True,
-    temperature=0.4,
+    temperature=0.7,
     timeout=300,  # Increase timeout to 60 seconds
 )
 

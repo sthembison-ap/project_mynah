@@ -23,7 +23,7 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/")
 async def serve_chat_ui():
     """Serve the chat UI HTML file."""
-    return FileResponse(os.path.join(BASE_DIR, "chat_ui.html"))
+    return FileResponse(os.path.join(BASE_DIR, "chat", "chat_ui.html"))
 
 if __name__ == "__main__":
     # request = OrchestrationRequest(message="I want to pay R500 per month towards my balance", 

@@ -28,27 +28,19 @@ class NLUEntities(BaseModel):
     payment_type: Optional[str] = Field(None, description="The type of payment") #e.g. "installment", "settlement"
     date: Optional[str] = Field(None, description="The date of the payment") #ISO date format (if extracted)
     raw: Dict[str, Any] = Field(default_factory=dict, description="Raw entities extracted from the user's message")
-    
-    
+
+
 class NLUResult(BaseModel):
-    """Full NLU output including intent, entities, and reasoning."""
+    """NLU output for entity extraction and reasoning only.
+    
+    Note: Intent classification is handled by MasterAgent.
+    NLU Agent focuses solely on extracting entities from the message.
+    """
     model_config = ConfigDict(extra="ignore")
 
-    intent: Literal[
-        "create_payment_arrangement",
-        "request_settlement",
-        "ask_balance",
-        "small_talk",
-        "other",
-    ] = "other"
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Model confidence in the chosen intent."
-    )
     entities: NLUEntities
     reasoning: str = Field(
-        description="Short explanation of why this intent/entities were chosen."
+        description="Short explanation of why these entities were extracted."
     )
 
 class IncomingMessage(BaseModel):
