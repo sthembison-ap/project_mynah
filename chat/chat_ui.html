@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Agent</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #chat-box {
+            width: 80%;
+            max-width: 600px;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #333;
+            padding: 10px;
+            background-color: #1e1e1e;
+            border-radius: 10px;
+        }
+        #input-box {
+            width: 80%;
+            max-width: 600px;
+            display: flex;
+            margin-top: 10px;
+        }
+        #message {
+            flex: 1;
+            padding: 10px;
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #444;
+            border-radius: 5px;
+        }
+        #send-btn {
+            padding: 10px 20px;
+            background-color: #6200ea;
+            color: #fff;
+            border: none;
+            margin-left: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+<h1>AI Chat Agent</h1>
+<div id="chat-box"></div>
+<div id="input-box">
+    <input type="text" id="message" placeholder="Type your message...">
+    <button id="send-btn" onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+    let sessionId = null;
+
+    async function sendMessage() {
+        const messageInput = document.getElementById('message');
+        const message = messageInput.value.trim();
+        if (!message) return;
+
+        const chatBox = document.getElementById('chat-box');
+        const sendBtn = document.getElementById('send-btn');
+
+        // Disable input while processing
+        messageInput.disabled = true;
+        sendBtn.disabled = true;
+
+        // Show user message
+        chatBox.innerHTML += `<div style="margin: 10px 0; padding: 8px; background-color: #333; border-radius: 8px;"><strong>You:</strong> ${message}</div>`;
+        messageInput.value = '';
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        try {
+            // Update this URL to your server address
+            const API_BASE_URL = 'http://172.17.0.2:8000';  // Change to your server URL
+
+            const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: message,
+                    session_id: sessionId
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            // Store session ID for conversation continuity
+            if (data.session_id) {
+                sessionId = data.session_id;
+            }
+
+            // Show AI response
+            chatBox.innerHTML += `<div style="margin: 10px 0; padding: 8px; background-color: #2a2a5a; border-radius: 8px;"><strong>AI:</strong> ${data.response}</div>`;
+
+        } catch (error) {
+            console.error('Error:', error);
+            chatBox.innerHTML += `<div style="margin: 10px 0; padding: 8px; background-color: #5a2a2a; border-radius: 8px;"><strong>Error:</strong> Failed to get response. Please try again.</div>`;
+        } finally {
+            // Re-enable input
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    }
+
+    // Allow sending message with Enter key
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('message').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    });
+</script>
+</body>
+</html>

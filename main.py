@@ -3,6 +3,9 @@ from schemas.context import OrchestrationRequest
 import json
 from routes.routes import router as api_router
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+import os
 
 app = FastAPI(
     title="Project Mynah Agent API",
@@ -10,8 +13,17 @@ app = FastAPI(
     description="API wrapper around the LangChain-based mynah agent system.",
 )
 
+# Get the directory where main.py is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Mount the interaction endpoints
 app.include_router(api_router, prefix="/api/v1")
+
+# ---------- Serve Chat UI ----------
+@app.get("/")
+async def serve_chat_ui():
+    """Serve the chat UI HTML file."""
+    return FileResponse(os.path.join(BASE_DIR, "chat_ui.html"))
 
 if __name__ == "__main__":
     # request = OrchestrationRequest(message="I want to pay R500 per month towards my balance", 
