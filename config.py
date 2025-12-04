@@ -13,3 +13,21 @@
 # 
 # 
 # settings = Settings()
+
+
+import os
+from dotenv import load_dotenv
+from pydantic import BaseSettings
+
+load_dotenv()
+
+class IBISConfig(BaseSettings):
+    """IBIS API Configuration"""
+    base_url: str = os.getenv("IBIS_BASE_URL", "")
+    api_key: str = os.getenv("IBIS_API_KEY", "")
+    user_id: str = os.getenv("IBIS_USER_ID", "")
+
+    class Config:
+        env_prefix = "IBIS_"
+
+ibis_config = IBISConfig()

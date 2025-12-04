@@ -40,7 +40,7 @@ async def chat(chat_msg: ChatMessage):
     )
 
     # Run orchestration
-    agent_response, nlu_agent_response, orchestration_response = run_orchestration(request)
+    agent_response, nlu_agent_response, orchestration_response = await run_orchestration(request)
 
     # Return the response for the chat UI
     return {
@@ -53,7 +53,7 @@ async def chat(chat_msg: ChatMessage):
 
 @router.post("/orchestrate")
 async def orchestrate(request: OrchestrationRequest):
-    agent_response, nlu_agent_response, orchestration_response = run_orchestration(request)
+    agent_response, nlu_agent_response, orchestration_response = await run_orchestration(request)
 
     return {
         "agent_response": agent_response,

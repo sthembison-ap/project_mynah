@@ -4,6 +4,9 @@ from typing import Dict, Type, Optional, Callable
 from abc import ABC, abstractmethod
 
 from schemas.context import ConversationContext, IntentType
+from utils.validators import validate_email_address
+
+from pydantic import EmailStr
 
 
 class IntentHandler(ABC):
@@ -14,24 +17,45 @@ class IntentHandler(ABC):
         """Process the intent and update context."""
         pass
 
+#####Before Data Agent Integration#####
+# class BalanceHandler(IntentHandler):
+#     """Handler for get_balance intent."""
+# 
+#     def handle(self, context: ConversationContext) -> ConversationContext:
+#         # TODO: Integrate with Data Agent to fetch actual balance
+#         # For now, mark that we need to fetch balance data
+#         context.next_agent = "DataAgent"
+# 
+#         # Placeholder - in production, this would call your CRM/Excalibur API
+#         if context.crm:
+#             balance_info = f"Your current balance is {context.crm.currency} {context.crm.balance:.2f}"
+#         else:
+#             balance_info = "I'm retrieving your balance information..."
+# 
+#         context.final_response = balance_info
+#         return context
 
+#####After Data Agent Integration#####
 class BalanceHandler(IntentHandler):
     """Handler for get_balance intent."""
 
     def handle(self, context: ConversationContext) -> ConversationContext:
-        # TODO: Integrate with Data Agent to fetch actual balance
-        # For now, mark that we need to fetch balance data
+        # Check if we have ID number to fetch balance
+        if not context.id_number:
+            # Request ID number from user
+            context.awaiting_input = "id_number"
+            context.final_response = (
+                "I can help you check your account balance.\n\n"
+                "To retrieve your balance, I'll need to verify your account. "
+                "Please provide your ID number.\n\n"
+                "Your ID number is used solely for account verification purposes."
+            )
+            context.next_agent = None  # Wait for user input
+            return context
+
+        # We have ID number - call Data Agent to fetch balance
         context.next_agent = "DataAgent"
-
-        # Placeholder - in production, this would call your CRM/Excalibur API
-        if context.crm:
-            balance_info = f"Your current balance is {context.crm.currency} {context.crm.balance:.2f}"
-        else:
-            balance_info = "I'm retrieving your balance information..."
-
-        context.final_response = balance_info
         return context
-
 
 class PaymentPlanHandler(IntentHandler):
     """Handler for setup_payment_plan intent."""
@@ -49,19 +73,39 @@ class PaymentPlanHandler(IntentHandler):
             context.next_agent = "ResponseAgent"
             return context
 
-        # All info available - proceed with arrangement logic
-        amount = entities.get("amount")
-        frequency = entities.get("frequency")
+        ##########Pivot for Data Agent Implementation##########
 
-        # TODO: Integrate with Reasoning Agent to validate against book rules
-        # For now, acknowledge the request
-        context.final_response = (
-            f"I can set up a payment plan of R{amount:.2f} {frequency}. "
-            "Let me verify this against your account terms..."
-        )
-        context.next_agent = "ReasoningAgent"
+        # Check if we have ID number
+        if not context.id_number:
+            # Request ID number from user
+            context.awaiting_input = "id_number"
+            context.final_response = (
+                f"I can help you set up a payment plan of R{entities.get('amount'):,.2f} {entities.get('frequency')}.\n\n"
+                "To proceed, I'll need to verify your account. "
+                "Please provide your ID number.\n\n"
+                "Your ID number is used solely for account verification purposes."
+            )
+            context.next_agent = None  # Wait for user input
+            return context
 
+        # We have ID number - call Data Agent
+        context.next_agent = "DataAgent"
         return context
+        
+        ##########Previous Logic (Keep in mind Arrangement and Query Requests##########
+        # # All info available - proceed with arrangement logic
+        # amount = entities.get("amount")
+        # frequency = entities.get("frequency")
+        # 
+        # # TODO: Integrate with Reasoning Agent to validate against book rules
+        # # For now, acknowledge the request
+        # context.final_response = (
+        #     f"I can set up a payment plan of R{amount:.2f} {frequency}. "
+        #     "Let me verify this against your account terms..."
+        # )
+        # context.next_agent = "ReasoningAgent"
+        # 
+        # return context
 
 
 class SettlementHandler(IntentHandler):
@@ -192,6 +236,118 @@ class UnknownIntentHandler(IntentHandler):
         )
         return context
 
+class PaymentPlanSetupHandler(IntentHandler):
+    """Handler for setting up payment plans with validation."""
+
+    def can_handle(self, intent: str) -> bool:
+        return intent in [
+            "setup_payment_plan",
+            "create_payment_arrangement",
+            "request_payment_plan_details"
+        ]
+
+    def handle(self, context: ConversationContext) -> ConversationContext:
+        context.agent_path.append("PaymentPlanSetupHandler")
+
+        # Check if we have account info
+        if not context.matter_details:
+            # Need to get account info first
+            if not context.id_number:
+                context.final_response = (
+                    "To set up a payment plan, I'll need to verify your account first. "
+                    "Could you please provide your 13-digit South African ID number?"
+                )
+                context.awaiting_input = "id_number"
+                return context
+            else:
+                # Route to Data Agent to get account info
+                context.next_agent = "DataAgent"
+                return context
+
+        # We have account info - check if we have payment details
+        if not context.entities or not context.entities.amount:
+            # Ask for payment details
+            min_payment = context.matter_details.minimum_payment
+            context.final_response = f"""Great! To set up your payment plan, I need a few details:
+
+Please provide:
+1. Amount: How much would you like to pay? (Minimum: R{min_payment:,.2f})
+2. Frequency: How often? (weekly, fortnightly, or monthly)
+
+For example: "R500 monthly" or "R250 weekly"
+"""
+            context.awaiting_input = "payment_details"
+            return context
+
+        # We have payment details - validate amount
+        proposed_amount = context.entities.amount
+        min_payment = context.matter_details.minimum_payment
+
+        if proposed_amount < min_payment:
+            # Amount is below minimum - offer approval option
+            context.final_response = f"""I appreciate your offer, but the minimum payment for your account is R{min_payment:,.2f}.
+
+Your proposed amount of R{proposed_amount:,.2f} is below this minimum.
+
+Would you like me to:
+1. Request approval for R{proposed_amount:,.2f} from our collections team?
+2. Offer a different amount that meets the minimum?
+
+Please reply with "request approval" or provide a new amount."""
+            context.awaiting_input = "approval_choice"
+            context.proposed_amount = proposed_amount  # Store for later
+            return context
+
+        # Amount is valid - confirm the plan
+        frequency = context.entities.frequency or "monthly"
+        context.final_response = f"""Perfect! Here's your proposed payment plan:
+
+Payment Plan Summary:
+• Amount: R{proposed_amount:,.2f}
+• Frequency: {frequency.capitalize()}
+• Outstanding Balance: R{context.matter_details.outstanding_balance:,.2f}
+
+Would you like me to proceed and set up this arrangement?
+
+Reply "Yes" to confirm or "No" to make changes."""
+        context.awaiting_input = "plan_confirmation"
+        context.next_agent = "ConfirmationHandler"
+        return context
+
+class ApprovalRequestHandler(IntentHandler):
+    """Handler for processing approval requests for below-minimum payments."""
+
+    def can_handle(self, intent: str) -> bool:
+        return intent in ["request_approval", "provide_email"]
+
+    def handle(self, context: ConversationContext) -> ConversationContext:
+        context.agent_path.append("ApprovalRequestHandler")
+
+        # Check if we have email
+        if not context.email_address:
+            context.final_response = """To submit your approval request, I'll need your email address.
+
+This is where we'll send confirmation and the team's response.
+
+Please provide your email address:"""
+            # If user provided something that looks like an email attempt
+        if context.awaiting_input == "email_address" and context.last_user_message:
+            is_valid, normalized_email, error_msg = validate_email_address(context.last_user_message)
+
+            if is_valid:
+                context.email_address = EmailStr()  # Cast to EmailStr
+                context.next_agent = "EmailAgent"
+            else:
+                context.final_response = f"""{error_msg}
+
+**Please provide a valid email address:**
+Example: yourname@example.com"""
+            context.awaiting_input = "email_address"
+            return context
+
+        # We have email - route to email sender
+        context.next_agent = "EmailAgent"
+        return context
 
 class IntentRouter:
     """

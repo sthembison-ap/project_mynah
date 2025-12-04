@@ -1,7 +1,10 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union, Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from sqlalchemy import Lateral
+
+
+#from agents.data_agent import MatterDetails
 
 #----------- NLU / Intent Layer -----------
 
@@ -18,6 +21,7 @@ IntentType = Literal[
     "email_statement", #Email Statement
     "payment_date", #When is my next payment due?
     "confirm_banking_details", #Confirm Banking Details
+    "request_payment_plan_details", #New Intent - Request payment plan lower than MinimumPaymentAmount
     "unknown",
 ]
 
@@ -61,6 +65,22 @@ class PaymentHistoryEntity(BaseModel):
     amount: float = Field(..., description="The amount of the payment")
     date: str = Field(..., description="The date of the payment")
     status: str = Field(..., description="The status of the payment") #e.g. "success", "failed"
+
+class MatterDetails(BaseModel):
+    """Parsed matter details from IBIS API response."""
+    idx: int = Field(default=0, description="The index of the matter")
+    matter_id: str = Field(default="", description="The matter ID")
+    status: str = Field(default="", description="The status of the matter")
+    outstanding_balance: float = Field(default=0.0, description="The outstanding balance")
+    capital_amount: float = Field(default=0.0, description="The capital amount")
+    minimum_payment: float = Field(default=0.0, description="The minimum payment amount")
+    last_payment_amount: float = Field(default=0.0, description="The last payment amount")
+    last_payment_date: str = Field(default="", description="The last payment date")
+    client_name: str = Field(default="", description="The client/creditor name")
+    debtor_name: str = Field(default="", description="The debtor name")
+    active_plan: bool = Field(default=False, description="Whether there's an active payment plan")
+    payment_method: str = Field(default="", description="The payment method")
+ 
     
 class PaymentHistoryModule(BaseModel):
     has_broken_arrangements: bool = Field(..., description="Whether the debtor has broken arrangements")
@@ -109,6 +129,35 @@ class ConversationContext(BaseModel):
     session_id: str = Field(..., description="The session ID for the conversation")
     debtor_id: str = Field(..., description="The debtor's ID")
     last_user_message: Optional[str] = Field(None, description="The last user message sent in the conversation")
+    # Adding these new fields (Data Agent):
+    id_number: Optional[str] = Field(None, description="User's ID number for account lookup")
+    account_info: Optional[AccountInfo] = Field(None, description="Retrieved account information")
+    awaiting_input: Optional[str] = Field(None, description="What input we're waiting for (e.g., 'id_number')")
+    
+    # Payment plan fields (MinimumPaymentAmount)
+    matter_details: Optional[MatterDetails] = Field(None, description="Retrieved account information")
+    proposed_amount: Optional[float] = Field(None, description="Proposed amount for payment plan")
+    proposed_frequency: Optional[str] = Field(None, description="Proposed frequency for payment plan")
+
+    # Approval request fields and Email with Pydantic validation
+    email_address: Optional[EmailStr] = Field(None, description="Email address to send approval request to")
+
+    @field_validator('email_address', mode='before')
+    @classmethod
+    def validate_email(cls, v):
+        if v is None or v == "":
+            return None
+        # Strip whitespace and validate
+        return v.strip().lower() if v else None
+
+    # Possible values for awaiting_input:
+    # - "id_number": Waiting for ID number
+    # - "payment_details": Waiting for amount and frequency
+    # - "approval_choice": Waiting for approval decision
+    # - "email_address": Waiting for email
+    # - "plan_confirmation": Waiting for yes/no confirmation
+
+    
     
     # path & orchestration layer:
     intent: IntentType = "unknown"
@@ -153,6 +202,17 @@ class NLUAgentResponse(BaseModel):
     Entities: NLUEntities
     reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the conversation")
     nlu_reasoning: Optional[str] = Field(None, description="The reasoning result of the NLU layer")
+
+class AccountInfo(BaseModel):
+    """Account information retrieved from Data Agent."""
+    matter_id: str = Field(..., description="The matter/account ID")
+    outstanding_balance: float = Field(..., description="Current outstanding balance")
+    capital_amount: float = Field(..., description="Original capital amount")
+    minimum_payment: float = Field(..., description="Minimum payment required")
+    last_payment_date: Optional[str] = Field(None, description="Date of last payment")
+    client_name: str = Field(..., description="Creditor/client name")
+    status: str = Field(..., description="Account status")
+    active_plan: bool = Field(default=False, description="Whether there's an active payment plan")
 
     model_config = {
         "arbitrary_types_allowed": True
