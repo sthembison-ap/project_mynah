@@ -9,6 +9,7 @@ pydantic-settings==2.11.0
 pydantic==2.12.5
 python-dotenv==1.2.1
 datasets>=2.20.0
+pydantic[email]
 
 # LangChain ecosystem
 langchain==1.1.0

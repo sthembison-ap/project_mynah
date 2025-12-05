@@ -1,18 +1,27 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union, Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 from sqlalchemy import Lateral
+
+
+#from agents.data_agent import MatterDetails
 
 #----------- NLU / Intent Layer -----------
 
+############Intents from Customer Portal Workflow Diagram############
+
 IntentType = Literal[
-    "get_balance",
+    "get_balance", #Check my account balance
     "get_statement",
     "request_settlement_quote",
-    "setup_payment_plan",
+    "setup_payment_plan", #Create an arrangement
     "query_payment_history",
     "query_guidelines",
-    "escalate_to_agent",
+    "escalate_to_agent", #"Chat to Agent"
+    "email_statement", #Email Statement
+    "payment_date", #When is my next payment due?
+    "confirm_banking_details", #Confirm Banking Details
+    "request_payment_plan_details", #New Intent - Request payment plan lower than MinimumPaymentAmount
     "unknown",
 ]
 
@@ -23,27 +32,19 @@ class NLUEntities(BaseModel):
     payment_type: Optional[str] = Field(None, description="The type of payment") #e.g. "installment", "settlement"
     date: Optional[str] = Field(None, description="The date of the payment") #ISO date format (if extracted)
     raw: Dict[str, Any] = Field(default_factory=dict, description="Raw entities extracted from the user's message")
-    
-    
+
+
 class NLUResult(BaseModel):
-    """Full NLU output including intent, entities, and reasoning."""
+    """NLU output for entity extraction and reasoning only.
+    
+    Note: Intent classification is handled by MasterAgent.
+    NLU Agent focuses solely on extracting entities from the message.
+    """
     model_config = ConfigDict(extra="ignore")
 
-    intent: Literal[
-        "create_payment_arrangement",
-        "request_settlement",
-        "ask_balance",
-        "small_talk",
-        "other",
-    ] = "other"
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Model confidence in the chosen intent."
-    )
     entities: NLUEntities
     reasoning: str = Field(
-        description="Short explanation of why this intent/entities were chosen."
+        description="Short explanation of why these entities were extracted."
     )
 
 class IncomingMessage(BaseModel):
@@ -64,6 +65,22 @@ class PaymentHistoryEntity(BaseModel):
     amount: float = Field(..., description="The amount of the payment")
     date: str = Field(..., description="The date of the payment")
     status: str = Field(..., description="The status of the payment") #e.g. "success", "failed"
+
+class MatterDetails(BaseModel):
+    """Parsed matter details from IBIS API response."""
+    idx: int = Field(default=0, description="The index of the matter")
+    matter_id: str = Field(default="", description="The matter ID")
+    status: str = Field(default="", description="The status of the matter")
+    outstanding_balance: float = Field(default=0.0, description="The outstanding balance")
+    capital_amount: float = Field(default=0.0, description="The capital amount")
+    minimum_payment: float = Field(default=0.0, description="The minimum payment amount")
+    last_payment_amount: float = Field(default=0.0, description="The last payment amount")
+    last_payment_date: str = Field(default="", description="The last payment date")
+    client_name: str = Field(default="", description="The client/creditor name")
+    debtor_name: str = Field(default="", description="The debtor name")
+    active_plan: bool = Field(default=False, description="Whether there's an active payment plan")
+    payment_method: str = Field(default="", description="The payment method")
+ 
     
 class PaymentHistoryModule(BaseModel):
     has_broken_arrangements: bool = Field(..., description="Whether the debtor has broken arrangements")
@@ -104,7 +121,7 @@ class ReasoningResult(BaseModel):
     arrangement: Optional[ArrangementReasoning] = Field(None, description="The arrangement reasoning result")
     settlement: Optional[SettlementReasoning] = Field(None, description="The settlement reasoning result")
     summary: Optional[str] = Field(None, description="A summary of the reasoning result")
-    
+    #Want to improve the reasoning result.
     
 #----------- Overall Context -----------
 
@@ -112,6 +129,35 @@ class ConversationContext(BaseModel):
     session_id: str = Field(..., description="The session ID for the conversation")
     debtor_id: str = Field(..., description="The debtor's ID")
     last_user_message: Optional[str] = Field(None, description="The last user message sent in the conversation")
+    # Adding these new fields (Data Agent):
+    id_number: Optional[str] = Field(None, description="User's ID number for account lookup")
+    account_info: Optional[AccountInfo] = Field(None, description="Retrieved account information")
+    awaiting_input: Optional[str] = Field(None, description="What input we're waiting for (e.g., 'id_number')")
+    
+    # Payment plan fields (MinimumPaymentAmount)
+    matter_details: Optional[MatterDetails] = Field(None, description="Retrieved account information")
+    proposed_amount: Optional[float] = Field(None, description="Proposed amount for payment plan")
+    proposed_frequency: Optional[str] = Field(None, description="Proposed frequency for payment plan")
+
+    # Approval request fields and Email with Pydantic validation
+    email_address: Optional[EmailStr] = Field(None, description="Email address to send approval request to")
+
+    @field_validator('email_address', mode='before')
+    @classmethod
+    def validate_email(cls, v):
+        if v is None or v == "":
+            return None
+        # Strip whitespace and validate
+        return v.strip().lower() if v else None
+
+    # Possible values for awaiting_input:
+    # - "id_number": Waiting for ID number
+    # - "payment_details": Waiting for amount and frequency
+    # - "approval_choice": Waiting for approval decision
+    # - "email_address": Waiting for email
+    # - "plan_confirmation": Waiting for yes/no confirmation
+
+    
     
     # path & orchestration layer:
     intent: IntentType = "unknown"
@@ -134,6 +180,8 @@ class OrchestrationRequest(BaseModel):
     message: str = Field(..., description="The user's message")
     debtor_id: str = Field(..., description="The debtor's ID")
     session_id: str = Field(..., description="The session ID for the conversation")
+    channel: Optional[str] = Field(None, description="The channel of the request") #Added for the API endpoint - Should be handled in main.py as well
+    #locale: Optional[str] = Field(None, description="The locale of the request") #Added for the API endpoint - Should be handled in main.py as well --NOT IN USE FOR NOW
     
 class OrchestrationResponse(BaseModel):
     session_id: str = Field(..., description="The session ID for the conversation")
@@ -149,14 +197,86 @@ class AgentResponse(BaseModel):
     reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the conversation")
     
     
+    
 class NLUAgentResponse(BaseModel):
     Entities: NLUEntities
     reasoning_result: Optional[ReasoningResult] = Field(None, description="The reasoning result of the conversation")
+    nlu_reasoning: Optional[str] = Field(None, description="The reasoning result of the NLU layer")
+
+class AccountInfo(BaseModel):
+    """Account information retrieved from Data Agent."""
+    matter_id: str = Field(..., description="The matter/account ID")
+    outstanding_balance: float = Field(..., description="Current outstanding balance")
+    capital_amount: float = Field(..., description="Original capital amount")
+    minimum_payment: float = Field(..., description="Minimum payment required")
+    last_payment_date: Optional[str] = Field(None, description="Date of last payment")
+    client_name: str = Field(..., description="Creditor/client name")
+    status: str = Field(..., description="Account status")
+    active_plan: bool = Field(default=False, description="Whether there's an active payment plan")
 
     model_config = {
         "arbitrary_types_allowed": True
     }
     
+#----------- API Request Body Schema -----------
+class InteractionRequest(BaseModel):
+    """
+    Request body for the /interact endpoint.
+    This is what your channels / frontends will send.
+    """
+    session_id: str = Field(..., description="Unique session/conversation ID.")
+    debtor_id: str = Field(..., description="External debtor/account identifier.")
+    message: str = Field(..., description="The debtor's latest message text.")
+    channel: Optional[str] = Field(
+        default=None,
+        description="Origin channel, e.g. 'whatsapp', 'webchat', 'voice_transcript'.",
+    )
+    # I want to pull `locale` from Excalibur Localization API
+    locale: Optional[str] = Field(default="en-ZA", description="Locale, e.g. 'en-ZA'.")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional arbitrary metadata from the Debtor Portal.",
+    )
+
+#Minimal Projection of Excalibur data structure
+class AccountSnapshot(BaseModel):
+    """
+    Minimal, safer projection of CRMAccount for API consumers.
+    Adjust as needed (or expose CRMAccount directly if you prefer).
+    """
+    account_number: str
+    full_name: Optional[str] = None
+    current_balance: float
+    status: str
+    product_type: Optional[str] = None
+
+#Feels like a duplication of concerns but keeping for now
+class InteractionResponse(BaseModel):
+    """
+    Response body for the /interact endpoint.
+    """
+    session_id: str = Field(..., description="The session ID for the conversation")
+    debtor_id: str = Field(..., description="External debtor/account identifier.")
+    intent: Optional[str] = None
+    message: str = Field(
+        ...,
+        description="Final or intermediate message back to the debtor. "
+                    "Once ResponseAgent is implemented this will be the real reply.",
+    )
+
+    # Structured info for your channels/UX / debugging
+    entities: Optional[NLUEntities] = None
+    agent_path: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+
+    # Optional data snapshots (make them as rich as you like)
+    account: Optional[AccountSnapshot] = None
+    book_rules: Optional[BookRulesModule] = None
+    recent_payments: List[PaymentHistoryModule] = Field(default_factory=list)
+
+    # Optional: attach raw context for debugging (turn off in prod!)
+    debug_context: Optional[dict[str, Any]] = None
+
 #----------- Master Agent Prompt Schema -----------
 class Persona(BaseModel):
     role: str

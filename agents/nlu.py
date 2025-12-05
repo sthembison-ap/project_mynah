@@ -11,12 +11,14 @@ from pydantic import BaseModel
 
 from schemas.context import ConversationContext, NLUEntities, NLUResult, IntentType
 
+import json #Importing this here just for TESTING Context dump
+
 
 model = ChatOllama(
     model="llama3.1:8b",
     base_url="http://192.168.100.203:11434",  # Specify the server URL
     validate_model_on_init=True,
-    temperature=0.4,
+    temperature=0.7,
     timeout=300,  # Increase timeout to 60 seconds
 )
 
@@ -51,38 +53,40 @@ class NLUAgent:
         """
 
         system  = (
-        """You are an NLU component in a debt resolution contact centre.
-        
-        Your job is to interpret a debtor's message and output a STRICT JSON
-        structure with:
-        - intent: what the debtor is trying to do
-        - entities: key financial and scheduling details
-        - reasoning: short explanation
-        
-        Possible intents:
-        - create_payment_arrangement: debtor wants to pay in instalments.
-        - request_settlement: debtor wants to settle the debt with a lump sum or reduced amount.
-        - ask_balance: debtor is asking about current balance or how it was calculated.
-        - small_talk: 'hi', 'thank you', etc., with no real financial action required.
-        - other: anything that does not match the above.
-        IMPORTANT RULES:
-        - If no amount is clearly mentioned, leave amount as null.
-        - If the currency is unclear but looks like South African Rand, use 'ZAR'.
-        - If the debtor mentions a number of months, map it to number_of_payments.
-        - If they mention 'once-off', 'one payment', or similar, set lump_sum = true and frequency = 'once'.
-       - If you are unsure about anything, leave that field as null or 'unknown'
-       """
+            """You are an NLU (Natural Language Understanding) component in a debt resolution contact centre.
+            
+            Your ONLY job is to extract entities from the debtor's message. You do NOT classify intent.
+            The intent has already been determined by the Master Agent and is provided for context.
+            
+            Output a STRICT JSON structure with:
+            - entities: key financial and scheduling details extracted from the message
+            - reasoning: short explanation of what you extracted and why
+            
+            Entity fields to extract:
+            - amount: monetary amount mentioned (as a number, e.g., 500.00)
+            - currency: currency code (default to 'ZAR' for South African Rand)
+            - frequency: payment frequency ('weekly', 'monthly', 'once_off', etc.)
+            - payment_type: type of payment ('installment', 'settlement', 'lump_sum')
+            - date: any date mentioned (ISO format if possible)
+            
+            IMPORTANT RULES:
+            - If no amount is clearly mentioned, leave amount as null.
+            - If the currency is unclear but looks like South African Rand, use 'ZAR'.
+            - If the debtor mentions a number of months, infer the frequency as 'monthly'.
+            - If they mention 'once-off', 'one payment', 'lump sum', set frequency = 'once_off'.
+            - If you are unsure about anything, leave that field as null.
+            - DO NOT infer or output any intent - that is not your responsibility.
+           """
         )
         
         user = (
-            "High-level context:\n"
+            "Context:\n"
             "- session_id: {session_id}\n"
             "- debtor_id: {debtor_id}\n"
-            "- intent (from MasterAgent): {intent}\n\n"
+            "- intent (already classified by MasterAgent): {intent}\n\n"
             "Debtor's latest message:\n"
             "\"\"\"{debtor_message}\"\"\"\n\n"
-            "Now extract entities and explain your reasoning. "
-            "Remember: DO NOT change the intent."
+            "Extract all relevant entities from this message and explain your reasoning."
         )
 
         return ChatPromptTemplate.from_messages(
@@ -132,9 +136,12 @@ class NLUAgent:
         #context.intent = nlu_result.intent --REMOVING (NLU Agent should not generate its own Intent
         context.entities = nlu_result.entities
         context.nlu_reasoning = nlu_result.reasoning
+        if context.entities and any(context.entities.model_dump().values()): #--Why dumping the entire JSON - Reason is checking all the returned Entities
+            context.understood_message = True
+        
     
         # Mark path
         if "NLUAgent" not in context.agent_path:
             context.agent_path.append("NLUAgent")
-    
+
         return context
