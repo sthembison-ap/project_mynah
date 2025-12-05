@@ -446,6 +446,7 @@
                 <option value="chat">💬 Chat (Default)</option>
                 <option value="master">🧠 Master Agent</option>
                 <option value="nlu">📝 NLU Agent</option>
+                <option value="data">📊 Data Agent</option>
                 <option value="health">❤️ Health Check</option>
             </select>
 
@@ -498,6 +499,7 @@
         'chat': '/api/v1/chat',
         'master': '/api/v1/agents/master/run',
         'nlu': '/api/v1/agents/nlu/run',
+        'data': '/api/v1/agents/data/run',
         'health': '/api/v1/health'
     };
 
@@ -682,6 +684,7 @@
             'chat': 'Merlin Agent',
             'master': 'Master Agent',
             'nlu': 'NLU Agent',
+            'data': 'Data Agent',
             'health': 'Health Check'
         };
 
@@ -723,6 +726,22 @@
                     agent_path: data.agent_path
                 };
                 addMessage('assistant', nluInfo, 'NLU Agent');
+                break;
+
+            case 'data':
+                if (data.success && data.matter_details) {
+                    const dataInfo = {
+                        debtor_name: data.matter_details.debtor_name,
+                        client_name: data.matter_details.client_name,
+                        outstanding_balance: `R${data.matter_details.outstanding_balance?.toFixed(2)}`,
+                        minimum_payment: `R${data.matter_details.minimum_payment?.toFixed(2)}`,
+                        status: data.matter_details.status,
+                        active_plan: data.matter_details.active_plan
+                    };
+                    addMessage('assistant', dataInfo, 'Data Agent');
+                } else {
+                    addMessage('error', data.error_message || 'Failed to fetch account data', 'Data Agent');
+                }
                 break;
 
             case 'health':

@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redis Session Monitor - Project Mynah</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #0a0a0a;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            border-bottom: 1px solid #222;
+            background-color: #111;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header-title {
+            font-size: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.connected {
+            background-color: #4ade80;
+            box-shadow: 0 0 8px #4ade80;
+        }
+
+        .status-dot.disconnected {
+            background-color: #f87171;
+            box-shadow: 0 0 8px #f87171;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .auto-refresh-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #999;
+        }
+
+        .auto-refresh-toggle input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .refresh-interval {
+            padding: 6px 10px;
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 13px;
+            width: 70px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #333;
+        }
+
+        .btn-primary {
+            background-color: #4a9eff;
+            border-color: #4a9eff;
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background-color: #3a8eef;
+        }
+
+        .btn-secondary {
+            background-color: #1a1a1a;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background-color: #2a2a2a;
+        }
+
+        .btn-danger {
+            background-color: #dc2626;
+            border-color: #dc2626;
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background-color: #b91c1c;
+        }
+
+        /* Stats Cards */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            padding: 24px;
+        }
+
+        .stat-card {
+            background-color: #111;
+            border: 1px solid #222;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 600;
+        }
+
+        .stat-value.success {
+            color: #4ade80;
+        }
+
+        .stat-value.warning {
+            color: #fbbf24;
+        }
+
+        .stat-value.info {
+            color: #60a5fa;
+        }
+
+        .stat-subtext {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        /* Main Content */
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 24px;
+            padding: 0 24px 24px;
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Session Table */
+        .sessions-panel {
+            background-color: #111;
+            border: 1px solid #222;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid #222;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .search-input {
+            padding: 8px 12px;
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            width: 250px;
+        }
+
+        .search-input::placeholder {
+            color: #666;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+
+        .sessions-table-container {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .sessions-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .sessions-table th,
+        .sessions-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #222;
+        }
+
+        .sessions-table th {
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background-color: #0a0a0a;
+            position: sticky;
+            top: 0;
+        }
+
+        .sessions-table tr {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .sessions-table tr:hover {
+            background-color: #1a1a1a;
+        }
+
+        .sessions-table tr.selected {
+            background-color: #1e3a5f;
+        }
+
+        .session-id {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            color: #60a5fa;
+        }
+
+        .intent-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background-color: #1a1a2e;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #a78bfa;
+        }
+
+        .ttl-badge {
+            font-size: 13px;
+            color: #888;
+        }
+
+        .ttl-badge.expiring {
+            color: #fbbf24;
+        }
+
+        .ttl-badge.fresh {
+            color: #4ade80;
+        }
+
+        .action-btn-small {
+            padding: 4px 8px;
+            background-color: transparent;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #888;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .action-btn-small:hover {
+            background-color: #333;
+            color: #fff;
+        }
+
+        .action-btn-small.danger:hover {
+            background-color: #dc2626;
+            border-color: #dc2626;
+        }
+
+        /* Detail Panel */
+        .detail-panel {
+            background-color: #111;
+            border: 1px solid #222;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .detail-content {
+            padding: 20px;
+        }
+
+        .detail-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .detail-empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .detail-section {
+            margin-bottom: 20px;
+        }
+
+        .detail-section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #1a1a1a;
+        }
+
+        .detail-label {
+            color: #888;
+            font-size: 14px;
+        }
+
+        .detail-value {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .detail-value.mono {
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #60a5fa;
+        }
+
+        .json-viewer {
+            background-color: #0a0a0a;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .json-key {
+            color: #60a5fa;
+        }
+
+        .json-string {
+            color: #4ade80;
+        }
+
+        .json-number {
+            color: #fbbf24;
+        }
+
+        .json-boolean {
+            color: #f472b6;
+        }
+
+        .json-null {
+            color: #888;
+        }
+
+        .detail-actions {
+            display: flex;
+            gap: 12px;
+            padding-top: 16px;
+            border-top: 1px solid #222;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background-color: #111;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .modal-text {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+        }
+
+        .toast {
+            background-color: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px 20px;
+            margin-top: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.success {
+            border-color: #4ade80;
+        }
+
+        .toast.error {
+            border-color: #f87171;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #333;
+            border-top-color: #4a9eff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <div class="header-title">
+            <span class="status-dot" id="status-dot"></span>
+            Redis Session Monitor
+        </div>
+        <span id="backend-label" style="font-size: 13px; color: #888;"></span>
+    </div>
+    <div class="header-controls">
+        <div class="auto-refresh-toggle">
+            <input type="checkbox" id="auto-refresh" checked>
+            <label for="auto-refresh">Auto-refresh</label>
+            <select class="refresh-interval" id="refresh-interval">
+                <option value="5">5s</option>
+                <option value="10" selected>10s</option>
+                <option value="30">30s</option>
+                <option value="60">60s</option>
+            </select>
+        </div>
+        <button class="btn btn-secondary" onclick="refreshData()">🔄 Refresh</button>
+        <button class="btn btn-danger" onclick="showClearModal()">🗑️ Clear All</button>
+        <a href="chat_ui.html" class="btn btn-secondary">💬 Chat UI</a>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="stats-container">
+    <div class="stat-card">
+        <div class="stat-label">Connection Status</div>
+        <div class="stat-value success" id="stat-status">--</div>
+        <div class="stat-subtext" id="stat-latency">Latency: --</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Active Sessions</div>
+        <div class="stat-value info" id="stat-sessions">--</div>
+        <div class="stat-subtext">mynah:session:* keys</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Memory Usage</div>
+        <div class="stat-value info" id="stat-memory">--</div>
+        <div class="stat-subtext" id="stat-total-keys">Total keys: --</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Server Uptime</div>
+        <div class="stat-value info" id="stat-uptime">--</div>
+        <div class="stat-subtext" id="stat-version">Version: --</div>
+    </div>
+</div>
+
+<!-- Main Content -->
+<div class="main-content">
+    <!-- Sessions Table -->
+    <div class="sessions-panel">
+        <div class="panel-header">
+            <div class="panel-title">Sessions (<span id="sessions-count">0</span>)</div>
+            <input type="text" class="search-input" id="search-input" placeholder="Search by session ID or debtor...">
+        </div>
+        <div class="sessions-table-container">
+            <table class="sessions-table">
+                <thead>
+                <tr>
+                    <th>Session ID</th>
+                    <th>Debtor</th>
+                    <th>Intent</th>
+                    <th>TTL</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+                <tbody id="sessions-tbody">
+                <!-- Sessions will be populated here -->
+                </tbody>
+            </table>
+        </div>
+        <div class="empty-state" id="empty-state" style="display: none;">
+            <div class="empty-state-icon">📭</div>
+            <div>No active sessions found</div>
+        </div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div class="detail-panel">
+        <div class="panel-header">
+            <div class="panel-title">Session Details</div>
+        </div>
+        <div class="detail-content" id="detail-content">
+            <div class="detail-empty">
+                <div class="detail-empty-icon">👈</div>
+                <div>Select a session to view details</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Clear All Modal -->
+<div class="modal-overlay" id="clear-modal">
+    <div class="modal">
+        <div class="modal-title">⚠️ Clear All Sessions</div>
+        <div class="modal-text">
+            This will permanently delete all active sessions. Users will lose their conversation context. This action cannot be undone.
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="hideClearModal()">Cancel</button>
+            <button class="btn btn-danger" onclick="clearAllSessions()">Clear All</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+    // Configuration
+    const API_BASE_URL = 'http://localhost:8000/api/v1/redis';
+    let selectedSessionId = null;
+    let autoRefreshInterval = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        refreshData();
+        setupAutoRefresh();
+
+        // Search input
+        document.getElementById('search-input').addEventListener('input', debounce(loadSessions, 300));
+
+        // Auto-refresh toggle
+        document.getElementById('auto-refresh').addEventListener('change', setupAutoRefresh);
+        document.getElementById('refresh-interval').addEventListener('change', setupAutoRefresh);
+    });
+
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+
+    function setupAutoRefresh() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+        }
+
+        const enabled = document.getElementById('auto-refresh').checked;
+        const interval = parseInt(document.getElementById('refresh-interval').value) * 1000;
+
+        if (enabled) {
+            autoRefreshInterval = setInterval(refreshData, interval);
+        }
+    }
+
+    async function refreshData() {
+        await Promise.all([
+            loadHealth(),
+            loadStats(),
+            loadSessions()
+        ]);
+    }
+
+    async function loadHealth() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/health`);
+            const data = await response.json();
+
+            const statusDot = document.getElementById('status-dot');
+            const statStatus = document.getElementById('stat-status');
+            const statLatency = document.getElementById('stat-latency');
+            const backendLabel = document.getElementById('backend-label');
+
+            if (data.status === 'connected') {
+                statusDot.className = 'status-dot connected';
+                statStatus.textContent = 'Connected';
+                statStatus.className = 'stat-value success';
+                statLatency.textContent = `Latency: ${data.latency_ms}ms`;
+                backendLabel.textContent = `Backend: ${data.backend} @ ${data.host}:${data.port || 'N/A'}`;
+            } else {
+                statusDot.className = 'status-dot disconnected';
+                statStatus.textContent = 'Disconnected';
+                statStatus.className = 'stat-value';
+                statLatency.textContent = `Error: ${data.error || 'Unknown'}`;
+                backendLabel.textContent = 'Backend: Disconnected';
+            }
+        } catch (error) {
+            console.error('Health check failed:', error);
+            document.getElementById('status-dot').className = 'status-dot disconnected';
+            document.getElementById('stat-status').textContent = 'Error';
+        }
+    }
+
+    async function loadStats() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/stats`);
+            const data = await response.json();
+
+            document.getElementById('stat-sessions').textContent = data.session_keys || 0;
+
+            if (data.backend === 'redis') {
+                document.getElementById('stat-memory').textContent = data.used_memory_human || 'N/A';
+                document.getElementById('stat-total-keys').textContent = `Total keys: ${data.total_keys || 0}`;
+                document.getElementById('stat-uptime').textContent = formatUptime(data.uptime_seconds);
+                document.getElementById('stat-version').textContent = `Version: ${data.redis_version || 'N/A'}`;
+            } else {
+                document.getElementById('stat-memory').textContent = 'N/A';
+                document.getElementById('stat-total-keys').textContent = 'In-memory store';
+                document.getElementById('stat-uptime').textContent = 'N/A';
+                document.getElementById('stat-version').textContent = 'In-memory backend';
+            }
+        } catch (error) {
+            console.error('Stats load failed:', error);
+        }
+    }
+
+    async function loadSessions() {
+        try {
+            const search = document.getElementById('search-input').value;
+            const url = search
+                ? `${API_BASE_URL}/sessions?search=${encodeURIComponent(search)}`
+                : `${API_BASE_URL}/sessions`;
+
+            const response = await fetch(url);
+            const data = await response.json();
+
+            const tbody = document.getElementById('sessions-tbody');
+            const emptyState = document.getElementById('empty-state');
+            const sessionsCount = document.getElementById('sessions-count');
+
+            sessionsCount.textContent = data.total;
+
+            if (data.sessions.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+
+            tbody.innerHTML = data.sessions.map(session => `
+                    <tr onclick="selectSession('${session.session_id}')" 
+                        class="${session.session_id === selectedSessionId ? 'selected' : ''}">
+                        <td><span class="session-id">${truncate(session.session_id, 20)}</span></td>
+                        <td>${session.debtor_id || 'N/A'}</td>
+                        <td><span class="intent-badge">${session.last_intent || 'unknown'}</span></td>
+                        <td><span class="ttl-badge ${getTtlClass(session.ttl_seconds)}">${formatTtl(session.ttl_seconds)}</span></td>
+                        <td>
+                            <button class="action-btn-small" onclick="event.stopPropagation(); selectSession('${session.session_id}')">👁️</button>
+                            <button class="action-btn-small danger" onclick="event.stopPropagation(); deleteSession('${session.session_id}')">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('');
+        } catch (error) {
+            console.error('Sessions load failed:', error);
+        }
+    }
+
+    async function selectSession(sessionId) {
+        selectedSessionId = sessionId;
+
+        // Update selected row styling
+        document.querySelectorAll('.sessions-table tr').forEach(row => {
+            row.classList.remove('selected');
+        });
+        event?.target?.closest('tr')?.classList.add('selected');
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
+            if (!response.ok) throw new Error('Session not found');
+
+            const data = await response.json();
+            displaySessionDetail(data);
+        } catch (error) {
+            console.error('Session load failed:', error);
+            showToast('Failed to load session details', 'error');
+        }
+    }
+
+    function displaySessionDetail(sessionData) {
+        const container = document.getElementById('detail-content');
+        const data = sessionData.data;
+
+        container.innerHTML = `
+                <div class="detail-section">
+                    <div class="detail-section-title">Session Info</div>
+                    <div class="detail-row">
+                        <span class="detail-label">Session ID</span>
+                        <span class="detail-value mono">${sessionData.session_id}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Debtor ID</span>
+                        <span class="detail-value">${data.debtor_id || 'N/A'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">TTL Remaining</span>
+                        <span class="detail-value">${formatTtl(sessionData.ttl_seconds)}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Current Intent</span>
+                        <span class="detail-value">${data.intent || 'unknown'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">ID Number</span>
+                        <span class="detail-value">${data.id_number || 'Not captured'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Has Matter Details</span>
+                        <span class="detail-value">${data.matter_details ? '✅ Yes' : '❌ No'}</span>
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <div class="detail-section-title">Agent Path</div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        ${(data.agent_path || []).map(agent => `<span class="intent-badge">${agent}</span>`).join(' → ')}
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <div class="detail-section-title">Last Message</div>
+                    <div style="color: #888; font-style: italic; padding: 8px 0;">
+                        "${data.last_user_message || 'No message'}"
+                    </div>
+                </div>
+                
+                <div class="detail-section">
+                    <div class="detail-section-title">Full Context (JSON)</div>
+                    <div class="json-viewer">${syntaxHighlight(JSON.stringify(data, null, 2))}</div>
+                </div>
+                
+                <div class="detail-actions">
+                    <button class="btn btn-secondary" onclick="selectSession('${sessionData.session_id}')">🔄 Refresh</button>
+                    <button class="btn btn-danger" onclick="deleteSession('${sessionData.session_id}')">🗑️ Delete</button>
+                </div>
+            `;
+    }
+
+    async function deleteSession(sessionId) {
+        if (!confirm(`Delete session ${sessionId}?`)) return;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+                method: 'DELETE'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('Session deleted successfully', 'success');
+                if (selectedSessionId === sessionId) {
+                    selectedSessionId = null;
+                    document.getElementById('detail-content').innerHTML = `
+                            <div class="detail-empty">
+                                <div class="detail-empty-icon">👈</div>
+                                <div>Select a session to view details</div>
+                            </div>
+                        `;
+                }
+                loadSessions();
+                loadStats();
+            } else {
+                showToast('Failed to delete session', 'error');
+            }
+        } catch (error) {
+            console.error('Delete failed:', error);
+            showToast('Failed to delete session', 'error');
+        }
+    }
+
+    function showClearModal() {
+        document.getElementById('clear-modal').classList.add('active');
+    }
+
+    function hideClearModal() {
+        document.getElementById('clear-modal').classList.remove('active');
+    }
+
+    async function clearAllSessions() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/sessions/clear`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: true })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(`Cleared ${data.deleted_count} sessions`, 'success');
+                hideClearModal();
+                selectedSessionId = null;
+                document.getElementById('detail-content').innerHTML = `
+                        <div class="detail-empty">
+                            <div class="detail-empty-icon">👈</div>
+                            <div>Select a session to view details</div>
+                        </div>
+                    `;
+                refreshData();
+            } else {
+                showToast('Failed to clear sessions', 'error');
+            }
+        } catch (error) {
+            console.error('Clear failed:', error);
+            showToast('Failed to clear sessions', 'error');
+        }
+    }
+
+    // Utility functions
+    function formatTtl(seconds) {
+        if (seconds < 0) return 'Expired';
+        if (seconds < 60) return `${seconds}s`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+        return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    }
+
+    function getTtlClass(seconds) {
+        if (seconds < 300) return 'expiring';
+        if (seconds > 1800) return 'fresh';
+        return '';
+    }
+
+    function formatUptime(seconds) {
+        if (!seconds) return 'N/A';
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        if (days > 0) return `${days}d ${hours}h`;
+        if (hours > 0) return `${hours}h`;
+        return `${Math.floor(seconds / 60)}m`;
+    }
+
+    function truncate(str, length) {
+        if (!str) return '';
+        return str.length > length ? str.slice(0, length) + '...' : str;
+    }
+
+    function syntaxHighlight(json) {
+        return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+            let cls = 'json-number';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    cls = 'json-key';
+                } else {
+                    cls = 'json-string';
+                }
+            } else if (/true|false/.test(match)) {
+                cls = 'json-boolean';
+            } else if (/null/.test(match)) {
+                cls = 'json-null';
+            }
+            return '<span class="' + cls + '">' + match + '</span>';
+        });
+    }
+
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+</script>
+</body>
+</html>

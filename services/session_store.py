@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
 
@@ -280,6 +280,18 @@ class SessionStore:
             self._backend = InMemorySessionStore(ttl_seconds)
             logger.info("Using in-memory session store")
 
+    @property
+    def is_redis(self) -> bool:
+        """Check if using Redis backend."""
+        return isinstance(self._backend, RedisSessionStore) and self._backend._redis is not None
+
+    @property
+    def redis_client(self):
+        """Get the raw Redis client (if available)."""
+        if self.is_redis:
+            return self._backend._redis
+        return None
+
     def save(self, session_id: str, context: Any) -> bool:
         """
         Save conversation context for a session.
@@ -352,3 +364,156 @@ class SessionStore:
             True if session exists, False otherwise
         """
         return self._backend.exists(session_id)
+
+    def get_ttl(self, session_id: str) -> int:
+        """
+        Get remaining TTL for a session in seconds.
+        
+        Args:
+            session_id: Unique session identifier
+            
+        Returns:
+            TTL in seconds, -1 if no expiry, -2 if key doesn't exist
+        """
+        if self.is_redis:
+            key = f"mynah:session:{session_id}"
+            return self.redis_client.ttl(key)
+        else:
+            # For in-memory, calculate remaining time
+            backend = self._backend
+            if session_id in backend._timestamps:
+                elapsed = datetime.now() - backend._timestamps[session_id]
+                remaining = backend.ttl.total_seconds() - elapsed.total_seconds()
+                return max(0, int(remaining))
+            return -2
+
+    def list_sessions(self, search: Optional[str] = None) -> list:
+        """
+        List all active sessions with metadata.
+        
+        Args:
+            search: Optional filter by session_id or debtor_id
+            
+        Returns:
+            List of session metadata dictionaries
+        """
+        sessions = []
+
+        if self.is_redis:
+            # Redis backend
+            pattern = "mynah:session:*"
+            for key in self.redis_client.scan_iter(pattern):
+                session_id = key.split(":")[-1]
+                ttl = self.redis_client.ttl(key)
+                data = self.load(session_id)
+
+                if data:
+                    session_info = {
+                        "session_id": session_id,
+                        "debtor_id": data.get("debtor_id", "unknown"),
+                        "ttl_seconds": ttl,
+                        "last_intent": data.get("intent", "unknown"),
+                        "last_message": data.get("last_user_message", "")[:50],
+                        "agent_path": data.get("agent_path", []),
+                        "has_id_number": bool(data.get("id_number")),
+                        "has_matter_details": data.get("matter_details") is not None,
+                    }
+                    sessions.append(session_info)
+        else:
+            # In-memory backend
+            backend = self._backend
+            for session_id, data in backend._store.items():
+                if backend._is_expired(session_id):
+                    continue
+
+                elapsed = datetime.now() - backend._timestamps[session_id]
+                ttl = max(0, int(backend.ttl.total_seconds() - elapsed.total_seconds()))
+
+                session_info = {
+                    "session_id": session_id,
+                    "debtor_id": data.get("debtor_id", "unknown"),
+                    "ttl_seconds": ttl,
+                    "last_intent": data.get("intent", "unknown"),
+                    "last_message": data.get("last_user_message", "")[:50] if data.get("last_user_message") else "",
+                    "agent_path": data.get("agent_path", []),
+                    "has_id_number": bool(data.get("id_number")),
+                    "has_matter_details": data.get("matter_details") is not None,
+                }
+                sessions.append(session_info)
+
+        # Apply search filter
+        if search:
+            search_lower = search.lower()
+            sessions = [
+                s for s in sessions
+                if search_lower in s["session_id"].lower()
+                   or search_lower in s.get("debtor_id", "").lower()
+            ]
+
+        # Sort by TTL descending (newest first)
+        sessions.sort(key=lambda x: x["ttl_seconds"], reverse=True)
+
+        return sessions
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get session store statistics.
+        
+        Returns:
+            Dictionary with storage stats
+        """
+        if self.is_redis:
+            try:
+                info = self.redis_client.info()
+                session_count = len(list(self.redis_client.scan_iter("mynah:session:*")))
+
+                return {
+                    "backend": "redis",
+                    "connected": True,
+                    "connected_clients": info.get("connected_clients", 0),
+                    "used_memory_human": info.get("used_memory_human", "N/A"),
+                    "uptime_seconds": info.get("uptime_in_seconds", 0),
+                    "total_keys": self.redis_client.dbsize(),
+                    "session_keys": session_count,
+                    "redis_version": info.get("redis_version", "unknown"),
+                }
+            except Exception as e:
+                return {
+                    "backend": "redis",
+                    "connected": False,
+                    "error": str(e),
+                }
+        else:
+            # In-memory stats
+            backend = self._backend
+            backend._cleanup_expired()
+
+            return {
+                "backend": "in-memory",
+                "connected": True,
+                "session_keys": len(backend._store),
+                "ttl_seconds": int(backend.ttl.total_seconds()),
+            }
+
+    def clear_all_sessions(self) -> int:
+        """
+        Clear all sessions (dangerous operation).
+        
+        Returns:
+            Number of sessions deleted
+        """
+        count = 0
+
+        if self.is_redis:
+            pattern = "mynah:session:*"
+            keys = list(self.redis_client.scan_iter(pattern))
+            if keys:
+                count = self.redis_client.delete(*keys)
+        else:
+            backend = self._backend
+            count = len(backend._store)
+            backend._store.clear()
+            backend._timestamps.clear()
+
+        logger.warning(f"Cleared {count} sessions")
+        return count

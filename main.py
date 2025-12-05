@@ -2,6 +2,7 @@ from orchestration.flow import run_orchestration
 from schemas.context import OrchestrationRequest
 import json
 from routes.routes import router as api_router
+from routes.routes import router as redis_router
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +25,12 @@ app.include_router(api_router, prefix="/api/v1")
 async def serve_chat_ui():
     """Serve the chat UI HTML file."""
     return FileResponse(os.path.join(BASE_DIR, "chat", "chat_ui.html"))
+
+@app.get("/redis-monitor")
+async def serve_redis_monitor():
+    """Serve the Redis Session Monitor UI."""
+    return FileResponse(os.path.join(BASE_DIR, "chat", "redis_monitor.html"))
+
 
 if __name__ == "__main__":
     # request = OrchestrationRequest(message="I want to pay R500 per month towards my balance", 
